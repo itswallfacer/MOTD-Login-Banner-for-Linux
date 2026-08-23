@@ -6,7 +6,7 @@
 
 CURRENT_USER=$(whoami)
 ORIGINAL_USER=$(who am i | awk '{print $1}')
-if [ $ORIGINAL_USER == $CURRENT_USER ]; then
+if [ "$ORIGINAL_USER" == "$CURRENT_USER" ]; then
 
 function printBar() {
 	input=$1
