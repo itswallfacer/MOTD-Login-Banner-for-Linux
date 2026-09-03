@@ -1,0 +1,227 @@
+# ---------------------------------------------------------------------- #
+##################### Start of Custom Bash Profile #######################
+# Ubuntu / Rocky Linux / Raspberry Pi OS                                 #
+# Last updated: 3 September 2026                                         #
+# ---------------------------------------------------------------------- #
+
+# Only continue in an interactive Bash shell.
+[[ $- == *i* ]] || return
+
+_profile_percentage() {
+    local used=${1:-0}
+    local total=${2:-0}
+
+    awk -v used="$used" -v total="$total" \
+        'BEGIN {
+            if (total > 0)
+                printf "%.2f", (used / total) * 100
+            else
+                printf "0.00"
+        }'
+}
+
+_profile_bar() {
+    local percentage=${1:-0}
+    local width=50
+    local integer filled empty
+    local filled_bar empty_bar
+
+    integer=${percentage%.*}
+
+    [[ $integer =~ ^[0-9]+$ ]] || integer=0
+    (( integer < 0 ))   && integer=0
+    (( integer > 100 )) && integer=100
+
+    # Round to the nearest position in a 50-character bar.
+    filled=$(( (integer * width + 50) / 100 ))
+    empty=$(( width - filled ))
+
+    printf -v filled_bar '%*s' "$filled" ''
+    printf -v empty_bar  '%*s' "$empty" ''
+
+    filled_bar=${filled_bar// /#}
+    empty_bar=${empty_bar// /-}
+
+    printf '%s%s' "$filled_bar" "$empty_bar"
+}
+
+_show_server_information() {
+    local current_user login_user
+    local reset='' reverse='' cyan=''
+    local ip_address release cpu_model
+    local disk_total disk_used disk_available disk_percentage
+    local mem_total mem_used mem_available mem_percentage
+    local swap_total swap_used swap_available swap_percentage
+    local process_count load_1 load_5 load_15
+    local last_login who_summary
+
+    current_user=$(id -un)
+
+    # Preserve the original intention: do not display the banner again after
+    # sudo -i or su -, where the login identity can be determined.
+    if [[ -n ${SUDO_USER:-} ]]; then
+        login_user=$SUDO_USER
+    else
+        login_user=$(logname 2>/dev/null || printf '%s' "$current_user")
+    fi
+
+    [[ $current_user == "$login_user" ]] || return
+    [[ -z ${CUSTOM_LOGIN_PROFILE_SHOWN:-} ]] || return
+    export CUSTOM_LOGIN_PROFILE_SHOWN=1
+
+    # Only use terminal formatting when the terminal supports it.
+    if [[ -t 1 && ${TERM:-dumb} != dumb ]] &&
+        command -v tput >/dev/null 2>&1; then
+        reset=$(tput sgr0 2>/dev/null || :)
+        reverse=$(tput smso 2>/dev/null || :)
+        cyan=$(tput setaf 6 2>/dev/null || :)
+    fi
+
+    ip_address=$(
+        hostname -I 2>/dev/null |
+            awk '{$1=$1; gsub(/ /, ", "); print}'
+    )
+    ip_address=${ip_address:-Unavailable}
+
+    release=$(
+        if [[ -r /etc/os-release ]]; then
+            . /etc/os-release
+            printf '%s' "${PRETTY_NAME:-Unknown}"
+        else
+            printf 'Unknown'
+        fi
+    )
+
+    cpu_model=$(
+        LC_ALL=C lscpu 2>/dev/null |
+            awk -F: '
+                /^Model name:/ {
+                    sub(/^[[:space:]]+/, "", $2)
+                    print $2
+                    exit
+                }
+            '
+    )
+    cpu_model=${cpu_model:-Unknown}
+
+    printf '%s%s  SERVER INFORMATION  %s%s\n' "$cyan" "$reverse" "$reset"
+    printf 'Hostname....... : %s\n' "$(hostname)"
+    printf 'IP Address..... : %s\n' "$ip_address"
+    printf 'Release........ : %s\n' "$release"
+    printf 'Kernel......... : %s\n' "$(uname -sr)"
+    printf 'CPU............ : %s\n' "$cpu_model"
+
+    read -r disk_total disk_used disk_available < <(
+        LC_ALL=C df -Pm / |
+            awk 'NR == 2 {print $2, $3, $4}'
+    )
+    disk_percentage=$(
+        _profile_percentage "$disk_used" "$disk_total"
+    )
+
+    read -r mem_total mem_used mem_available < <(
+        LC_ALL=C free -m |
+            awk '/^Mem:/ {print $2, $3, $7}'
+    )
+    mem_percentage=$(
+        _profile_percentage "$mem_used" "$mem_total"
+    )
+
+    read -r swap_total swap_used swap_available < <(
+        LC_ALL=C free -m |
+            awk '/^Swap:/ {print $2, $3, $4}'
+    )
+
+    process_count=$(
+        LC_ALL=C ps -e --no-headers 2>/dev/null |
+            awk 'END {print NR}'
+    )
+
+    read -r load_1 load_5 load_15 _ < /proc/loadavg
+
+    printf '\n%s%s  SERVER STATISTICS  %s%s\n' "$cyan" "$reverse" "$reset"
+
+    printf 'Disk Usage..... : %s MiB Used, %s MiB Available, %s MiB Total\n' \
+        "$disk_used" "$disk_available" "$disk_total"
+    printf '[%s] %s%%\n' \
+        "$(_profile_bar "$disk_percentage")" "$disk_percentage"
+
+    printf 'Memory Usage... : %s MiB Used, %s MiB Available, %s MiB Total\n' \
+        "$mem_used" "$mem_available" "$mem_total"
+    printf '[%s] %s%%\n' \
+        "$(_profile_bar "$mem_percentage")" "$mem_percentage"
+
+    if (( swap_total > 0 )); then
+        swap_percentage=$(
+            _profile_percentage "$swap_used" "$swap_total"
+        )
+
+        printf 'Swap Usage..... : %s MiB Used, %s MiB Free, %s MiB Total\n' \
+            "$swap_used" "$swap_available" "$swap_total"
+        printf '[%s] %s%%\n' \
+            "$(_profile_bar "$swap_percentage")" "$swap_percentage"
+    else
+        printf 'Swap Usage..... : Disabled\n'
+    fi
+
+    printf 'Running Process : %s\n' "$process_count"
+    printf 'Load Averages.. : %s, %s, %s (1 min, 5 min, 15 min)\n' \
+        "$load_1" "$load_5" "$load_15"
+
+    last_login=$(
+        LC_ALL=C last -i "$current_user" 2>/dev/null |
+            awk '
+                !/still logged in/ &&
+                !/^wtmp begins/ &&
+                NF {
+                    $1=""
+                    sub(/^ /, "")
+                    print
+                    exit
+                }
+            '
+    )
+    last_login=${last_login:-Unavailable}
+
+    who_summary=$(
+        who 2>/dev/null |
+            awk '
+                {
+                    count++
+                    if (!seen[$1]++) {
+                        names = names (names ? ", " : "") $1
+                    }
+                }
+                END {
+                    printf "%d session%s", count, count == 1 ? "" : "s"
+                    if (names != "")
+                        printf " (%s)", names
+                }
+            '
+    )
+
+    printf '\n%s%s  ACCESS & AVAILABILITY  %s%s\n' "$cyan" "$reverse" "$reset"
+    printf 'Uptime......... : %s\n' "$(uptime -p | sed 's/^up //')"
+    printf 'Last Boot...... : %s\n' "$(uptime -s)"
+    printf 'Current Time... : %s\n' "$(date '+%A, %d %B %Y, %T %Z')"
+    printf 'Last Login..... : %s\n' "$last_login"
+    printf 'Users Logged on : %s\n' "$who_summary"
+
+    printf '%s' "$reset"
+}
+
+_show_server_information
+
+# Remove helper functions after generating the banner so they do not remain
+# in the user's interactive shell.
+unset -f _show_server_information
+unset -f _profile_percentage
+unset -f _profile_bar
+
+# Bash expands the date, directory, username and hostname whenever it
+# displays the prompt, so PROMPT_COMMAND is unnecessary.
+if [[ -t 1 && ${TERM:-dumb} != dumb ]]; then
+    PS1='\n\[\e[1;36m\][\D{%A %Y-%m-%d %T}]\[\e[1;32m\]{\w}\n\[\e[1;34m\]{\[\e[1;31m\]\u\[\e[1;37m\]@\[\e[1;35m\]\h\[\e[1;34m\]}\[\e[1;36m\]\$\[\e[0m\] '
+else
+    PS1='\n[\D{%A %Y-%m-%d %T}]{\w}\n{\u@\h}\$ '
+fi
