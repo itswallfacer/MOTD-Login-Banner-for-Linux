@@ -6,7 +6,7 @@
 # Last updated: 3 September 2026                                         #
 # ---------------------------------------------------------------------- #
 
-set -Eeuo pipefail
+set -u
 
 # Only continue in an interactive Bash shell.
 [[ $- == *i* ]] || return
