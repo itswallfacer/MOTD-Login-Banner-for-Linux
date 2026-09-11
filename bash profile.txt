@@ -1,8 +1,12 @@
+#!/usr/bin/env bash
+
 # ---------------------------------------------------------------------- #
 ##################### Start of Custom Bash Profile #######################
 # Ubuntu / Rocky Linux / Raspberry Pi OS                                 #
 # Last updated: 3 September 2026                                         #
 # ---------------------------------------------------------------------- #
+
+set -Eeuo pipefail
 
 # Only continue in an interactive Bash shell.
 [[ $- == *i* ]] || return
